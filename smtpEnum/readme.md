@@ -79,12 +79,16 @@ python3 smtpenum.py <IP_DO_SERVIDOR_SMTP> <CAMINHO_PARA_USERLIST>
 - Paralelização: Melhorar a eficiência do script utilizando threads para enviar múltiplos comandos VRFY simultaneamente.
 - Relatórios Detalhados: Adicionar funcionalidades para gerar relatórios detalhados dos resultados.
 - Customização de Comandos: Permitir a customização de comandos SMTP além do VRFY.
-- Tratamento de Erros e Exceções: Capturar exceções específicas (socket.timeout, socket.error) e uma exceção geral (Exception), fornecendo mensagens de erro claras.
-- Validação de Entrada: Verificar se o arquivo da wordlist existe antes de tentar abri-lo.
 - Timeout de Conexão: Define um timeout de 10 segundos para a conexão do socket, evitando bloqueios indefinidos.
-- Fechamento Adequado do Socket: Utiliza um bloco try...finally para garantir que o socket seja fechado corretamente, mesmo em caso de erro.
 - Melhoria na Leitura e Envio de Dados: Verifica se a linha não está vazia antes de enviar a solicitação VRFY.
-- Estrutura de Função Principal: Utiliza uma função main() e a guarda if __name__ == "__main__": para organizar melhor o código e permitir sua reutilização.
+
+## 🚀 últimas Melhorias aplicadas <a name="futuras-melhorias"></a>
+
+- Linguagem do script stualizada para Go, vizando um melhor desempenho
+- Tratamento de Erros e Exceções: Capturar exceções específicas e gerais, fornecendo mensagens de erro claras.
+- Validação de Entrada: Verificar se o arquivo da wordlist existe antes de tentar abri-lo.
+- Fechamento Adequado do Socket: Agora, em GO, utilizo "defer conn.Close()" e "defer file.Close()" para garantir que a conexão e o arquivo serão devidamente fechados ao final da função main.
+
 
 Este script auxilia no processo de pentest ao permitir que os testadores identifiquem contas de e-mail válidas em um servidor SMTP. Ao saber quais usuários existem, um atacante pode direcionar ataques de força bruta, phishing ou engenharia social de maneira mais eficaz. Identificar essas vulnerabilidades é o primeiro passo para mitigar riscos e fortalecer a segurança do servidor SMTP.
 
