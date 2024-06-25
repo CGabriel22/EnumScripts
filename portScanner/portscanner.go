@@ -36,6 +36,6 @@ func main() {
 			}
 		}
 	} else {
-		packages.Synconnection()
+		packages.Synconnection(hostname, 80)
 	}
 }

@@ -25,22 +25,29 @@ func checksum(data []byte) uint16 {
 	return uint16(^sum)
 }
 
-func Synconnection() {
+// Converte uma estrutura para bytes
+func toBytes(data interface{}) []byte {
+	buf := new(bytes.Buffer)
+	err := binary.Write(buf, binary.BigEndian, data)
+	if err != nil {
+		log.Fatalf("Erro ao converter para bytes: %v", err)
+	}
+	return buf.Bytes()
+}
+
+func Synconnection(targetIP string, targetPort int) {
 	// Captura o tempo inicial
 	startTime := time.Now()
 
-	targetIP := "45.33.32.156"
-	targetPort := uint16(80)
-	srcIP := "192.168.18.83"
 	srcPort := uint16(443)
 
-	srcAddr := net.ParseIP(srcIP).To4()
+	srcAddr := net.ParseIP("192.168.18.83").To4()
 	dstAddr := net.ParseIP(targetIP).To4()
 
 	// Criar socket raw
 	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, syscall.IPPROTO_RAW)
 	if err != nil {
-		log.Fatalf("Erro ao criar socket: %v", err)
+		log.Fatalf("Socket create error: %v", err)
 	}
 	defer syscall.Close(fd)
 
@@ -61,7 +68,7 @@ func Synconnection() {
 	// Construir cabeçalho TCP
 	tcpHeader := TCPHeader{
 		SrcPort: srcPort,
-		DstPort: targetPort,
+		DstPort: uint16(targetPort),
 		SeqNum:  1105024978,
 		AckNum:  0,
 		DataOff: 5 << 4,
@@ -84,7 +91,7 @@ func Synconnection() {
 
 	// Enviar pacote SYN
 	destAddr := syscall.SockaddrInet4{
-		Port: int(targetPort),
+		Port: targetPort,
 		Addr: [4]byte{dstAddr[0], dstAddr[1], dstAddr[2], dstAddr[3]},
 	}
 	err = syscall.Sendto(fd, packet, 0, &destAddr)
@@ -132,7 +139,7 @@ func Synconnection() {
 				}
 
 				// Se o pacote for SYN/ACK, enviar RST
-				if tcp.Flags&0x12 == 0x12 && tcp.DstPort == srcPort && tcp.SrcPort == targetPort {
+				if tcp.Flags&0x12 == 0x12 && tcp.DstPort == srcPort && tcp.SrcPort == uint16(targetPort) {
 					fmt.Println("Pacote SYN/ACK recebido")
 					break
 				}
@@ -145,14 +152,4 @@ func Synconnection() {
 	duration := endTime.Sub(startTime)
 	// Imprime o tempo de execução
 	fmt.Printf("Tempo de execução: %s\n", duration)
-}
-
-// Converte uma estrutura para bytes
-func toBytes(data interface{}) []byte {
-	buf := new(bytes.Buffer)
-	err := binary.Write(buf, binary.BigEndian, data)
-	if err != nil {
-		log.Fatalf("Erro ao converter para bytes: %v", err)
-	}
-	return buf.Bytes()
 }
