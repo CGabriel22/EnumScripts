@@ -1,6 +1,7 @@
 package main
 
 import (
+	"enumscripts/packages"
 	"fmt"
 	"net"
 	"os"
@@ -20,16 +21,21 @@ func scanPort(protocol, hostname string, port int) bool {
 
 func main() {
 	// Verify if the number of arguments is correct
-	if len(os.Args) != 2 {
-		fmt.Println("How to use: go run portscanner.go IP/Hostname ")
+	if len(os.Args) != 3 {
+		fmt.Println("How to use: sudo go run portscanner.go [TypeScan] IP/Hostname ")
+		fmt.Println("TypeScan: -sT(TCP scan) or -sS(Syn scan)")
 		os.Exit(1)
 	}
 	// for tests: "scanme.nmap.org"
-	hostname := os.Args[1]
-	for port := 1; port <= 1024; port++ {
-		isOpen := scanPort("tcp", hostname, port)
-		if isOpen {
-			fmt.Printf("Port %d is open\n", port)
+	hostname := os.Args[2]
+	if os.Args[1] == "-sT" {
+		for port := 1; port <= 1024; port++ {
+			isOpen := scanPort("tcp", hostname, port)
+			if isOpen {
+				fmt.Printf("Port %d is open\n", port)
+			}
 		}
+	} else {
+		packages.Synconnection()
 	}
 }

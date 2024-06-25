@@ -15,11 +15,10 @@
 // simple timeout logic with time.Since.
 //
 // Making it blazingly fast is left as an exercise to the reader.
-package main
+package gopackettest
 
 import (
 	"errors"
-	"flag"
 	"fmt"
 	"log"
 	"net"
@@ -207,29 +206,43 @@ func (s *scanner) send(l ...gopacket.SerializableLayer) error {
 	return s.handle.WritePacketData(s.buf.Bytes())
 }
 
-func main() {
+func Run(value string) {
 	defer util.Run()()
 	router, err := routing.New()
 	if err != nil {
 		log.Fatal("routing error:", err)
 	}
-	for _, arg := range flag.Args() {
-		var ip net.IP
-		if ip = net.ParseIP(arg); ip == nil {
-			log.Printf("non-ip target: %q", arg)
-			continue
-		} else if ip = ip.To4(); ip == nil {
-			log.Printf("non-ipv4 target: %q", arg)
-			continue
-		}
-		s, err := newScanner(ip, router)
-		if err != nil {
-			log.Printf("unable to create scanner for %v: %v", ip, err)
-			continue
-		}
-		if err := s.scan(); err != nil {
-			log.Printf("unable to scan %v: %v", ip, err)
-		}
-		s.close()
+	// for _, arg := range flag.Args() {
+	// 	var ip net.IP
+	// 	if ip = net.ParseIP(arg); ip == nil {
+	// 		log.Printf("non-ip target: %q", arg)
+	// 		continue
+	// 	} else if ip = ip.To4(); ip == nil {
+	// 		log.Printf("non-ipv4 target: %q", arg)
+	// 		continue
+	// 	}
+	// 	s, err := newScanner(ip, router)
+	// 	if err != nil {
+	// 		log.Printf("unable to create scanner for %v: %v", ip, err)
+	// 		continue
+	// 	}
+	// 	if err := s.scan(); err != nil {
+	// 		log.Printf("unable to scan %v: %v", ip, err)
+	// 	}
+	// 	s.close()
+	// }
+	var ip net.IP
+	if ip = net.ParseIP(value); ip == nil {
+		log.Printf("non-ip target: %q", value)
+	} else if ip = ip.To4(); ip == nil {
+		log.Printf("non-ipv4 target: %q", value)
 	}
+	s, err := newScanner(ip, router)
+	if err != nil {
+		log.Printf("unable to create scanner for %v: %v", ip, err)
+	}
+	if err := s.scan(); err != nil {
+		log.Printf("unable to scan %v: %v", ip, err)
+	}
+	s.close()
 }
