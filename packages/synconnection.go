@@ -169,26 +169,6 @@ func main() {
 				// Se o pacote for SYN/ACK, enviar RST
 				if tcp.Flags&0x12 == 0x12 && tcp.DstPort == srcPort && tcp.SrcPort == targetPort {
 					fmt.Println("Pacote SYN/ACK recebido")
-
-					// Enviar pacote RST
-					tcpHeader.Flags = 0x04 // RST flag
-					tcpHeader.SeqNum = tcp.AckNum
-					tcpHeader.AckNum = tcp.SeqNum + 1
-					tcpHeader.Checksum = 0
-					pseudoHeader = append([]byte{
-						srcAddr[0], srcAddr[1], srcAddr[2], srcAddr[3],
-						dstAddr[0], dstAddr[1], dstAddr[2], dstAddr[3],
-						0, syscall.IPPROTO_TCP,
-						byte(20 >> 8), byte(20 & 0xff),
-					}, toBytes(tcpHeader)...)
-					tcpHeader.Checksum = checksum(pseudoHeader)
-					packet = append(toBytes(ipHeader), toBytes(tcpHeader)...)
-
-					err = syscall.Sendto(fd, packet, 0, &destAddr)
-					if err != nil {
-						log.Fatalf("Erro ao enviar pacote RST: %v", err)
-					}
-					fmt.Println("Pacote RST enviado")
 					break
 				}
 			}
