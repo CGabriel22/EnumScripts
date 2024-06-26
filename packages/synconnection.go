@@ -7,7 +7,7 @@ import (
 	"log"
 	"net"
 	"syscall"
-	"time"
+	// "time"
 )
 
 // Função para calcular a soma de verificação
@@ -37,7 +37,7 @@ func toBytes(data interface{}) []byte {
 
 func Synconnection(targetIP string, targetPort int) {
 	// Captura o tempo inicial
-	startTime := time.Now()
+	// startTime := time.Now()
 
 	srcPort := uint16(443)
 
@@ -51,31 +51,32 @@ func Synconnection(targetIP string, targetPort int) {
 	}
 	defer syscall.Close(fd)
 
-	// Construir cabeçalho IP
-	ipHeader := IPHeader{
-		VersionIHL:    (4 << 4) | 5,
-		TOS:           0,
-		Length:        20 + 20, // Tamanho do cabeçalho IP + TCP
-		Id:            54321,
-		FlagsFragment: 0,
-		TTL:           64,
-		Protocol:      syscall.IPPROTO_TCP,
-		SrcAddr:       [4]byte{srcAddr[0], srcAddr[1], srcAddr[2], srcAddr[3]},
-		DstAddr:       [4]byte{dstAddr[0], dstAddr[1], dstAddr[2], dstAddr[3]},
+	// Cria o pacote
+	fullPacket := FullPacket{
+		IPHeader: IPHeader{
+			VersionIHL:    (4 << 4) | 5,
+			TOS:           0,
+			Length:        20 + 20, // Tamanho do cabeçalho IP + TCP
+			Id:            54321,
+			FlagsFragment: 0,
+			TTL:           64,
+			Protocol:      syscall.IPPROTO_TCP,
+			SrcAddr:       [4]byte{srcAddr[0], srcAddr[1], srcAddr[2], srcAddr[3]},
+			DstAddr:       [4]byte{dstAddr[0], dstAddr[1], dstAddr[2], dstAddr[3]},
+		},
+		TCPHeader: TCPHeader{
+			SrcPort: srcPort,
+			DstPort: uint16(targetPort),
+			SeqNum:  1105024978,
+			AckNum:  0,
+			DataOff: 5 << 4,
+			Flags:   2, // SYN flag
+			WinSize: 14600,
+			UrgPtr:  0,
+		},
 	}
-	ipHeader.Checksum = checksum(toBytes(ipHeader))
-
-	// Construir cabeçalho TCP
-	tcpHeader := TCPHeader{
-		SrcPort: srcPort,
-		DstPort: uint16(targetPort),
-		SeqNum:  1105024978,
-		AckNum:  0,
-		DataOff: 5 << 4,
-		Flags:   2, // SYN flag
-		WinSize: 14600,
-		UrgPtr:  0,
-	}
+	// Calcula o checksum do IPHeader
+	fullPacket.IPHeader.Checksum = checksum(toBytes(fullPacket.IPHeader))
 
 	// Calcular pseudo-header para o checksum TCP
 	pseudoHeader := append([]byte{
@@ -83,11 +84,12 @@ func Synconnection(targetIP string, targetPort int) {
 		dstAddr[0], dstAddr[1], dstAddr[2], dstAddr[3],
 		0, syscall.IPPROTO_TCP,
 		byte(20 >> 8), byte(20 & 0xff),
-	}, toBytes(tcpHeader)...)
-	tcpHeader.Checksum = checksum(pseudoHeader)
+	}, toBytes(fullPacket.TCPHeader)...)
+	// Calcula o checksum do TCPHeader
+	fullPacket.TCPHeader.Checksum = checksum(pseudoHeader)
 
-	// Construir pacote completo
-	packet := append(toBytes(ipHeader), toBytes(tcpHeader)...)
+	// Converte o pacote para bytes
+	packet := toBytes(fullPacket)
 
 	// Enviar pacote SYN
 	destAddr := syscall.SockaddrInet4{
@@ -96,30 +98,29 @@ func Synconnection(targetIP string, targetPort int) {
 	}
 	err = syscall.Sendto(fd, packet, 0, &destAddr)
 	if err != nil {
-		log.Fatalf("Erro ao enviar pacote: %v", err)
+		log.Fatalf("Error sending package: %v", err)
 	}
-	fmt.Println("Pacote SYN enviado")
+	// fmt.Println("Pacote SYN enviado")
 
 	// Criar socket raw para receber pacotes
 	rfd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, syscall.IPPROTO_TCP)
 	if err != nil {
-		log.Fatalf("Erro ao criar socket: %v", err)
+		log.Fatalf("Raw socket create error: %v", err)
 	}
 	defer syscall.Close(rfd)
 
 	// Configurar timeout para o socket
-	timeout := syscall.Timeval{Sec: 2, Usec: 0}
-	err = syscall.SetsockoptTimeval(rfd, syscall.SOL_SOCKET, syscall.SO_RCVTIMEO, &timeout)
-	if err != nil {
-		log.Fatalf("Erro ao configurar timeout: %v", err)
-	}
+	timeout := syscall.Timeval{Sec: 1, Usec: 0}
+	syscall.SetsockoptTimeval(rfd, syscall.SOL_SOCKET, syscall.SO_RCVTIMEO, &timeout)
 
 	// Receber pacotes
 	for {
 		buf := make([]byte, 4096)
 		n, _, err := syscall.Recvfrom(rfd, buf, 0)
 		if err != nil {
-			log.Fatalf("Erro ao receber pacote: %v", err)
+			// log.Fatalf("Erro ao receber pacote: %v", err)
+			fmt.Printf("Port %d is closed\n", targetPort)
+			break
 		}
 
 		// Verificar se o pacote é um SYN/ACK
@@ -138,18 +139,21 @@ func Synconnection(targetIP string, targetPort int) {
 					UrgPtr:   binary.BigEndian.Uint16(tcpLayer[18:20]),
 				}
 
-				// Se o pacote for SYN/ACK, enviar RST
+				// Se o pacote for SYN/ACK
 				if tcp.Flags&0x12 == 0x12 && tcp.DstPort == srcPort && tcp.SrcPort == uint16(targetPort) {
-					fmt.Println("Pacote SYN/ACK recebido")
+					fmt.Printf("Port %d is open\n", targetPort)
+					break
+				}
+				// Verificar se o pacote é um RST/ACK
+				if tcp.Flags&0x14 == 0x14 && tcp.DstPort == srcPort && tcp.SrcPort == uint16(targetPort) {
+					fmt.Printf("Port %d is closed\n", targetPort)
 					break
 				}
 			}
 		}
 	}
-	// Captura o tempo final
-	endTime := time.Now()
-	// Calcula a duração total
-	duration := endTime.Sub(startTime)
-	// Imprime o tempo de execução
-	fmt.Printf("Tempo de execução: %s\n", duration)
+	// // Captura o tempo final
+	// endTime := time.Now()
+	// duration := endTime.Sub(startTime)
+	// fmt.Printf("Tempo de execução: %s\n", duration)
 }

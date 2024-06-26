@@ -26,3 +26,8 @@ type TCPHeader struct {
 	Checksum uint16
 	UrgPtr   uint16
 }
+
+type FullPacket struct {
+	IPHeader  IPHeader
+	TCPHeader TCPHeader
+}

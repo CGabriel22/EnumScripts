@@ -29,13 +29,25 @@ func main() {
 	// for tests: "scanme.nmap.org"
 	hostname := os.Args[2]
 	if os.Args[1] == "-sT" {
+		tStartTime := time.Now()
 		for port := 1; port <= 1024; port++ {
 			isOpen := scanPort("tcp", hostname, port)
 			if isOpen {
-				fmt.Printf("Port %d is open\n", port)
+				fmt.Printf("TCP: Port %d is open\n", port)
+			} else {
+				fmt.Printf("TCP: Port %d is closed\n", port)
 			}
 		}
+		tEndTime := time.Now()
+		tDuration := tEndTime.Sub(tStartTime)
+		fmt.Printf("Tempo de execução TCP scan: %s\n", tDuration)
 	} else {
-		packages.Synconnection(hostname, 80)
+		sStartTime := time.Now()
+		for port := 1; port <= 1024; port++ {
+			packages.Synconnection(hostname, port)
+		}
+		sEndTime := time.Now()
+		sDuration := sEndTime.Sub(sStartTime)
+		fmt.Printf("Tempo de execução SYN scan: %s\n", sDuration)
 	}
 }
