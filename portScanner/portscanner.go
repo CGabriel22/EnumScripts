@@ -43,9 +43,10 @@ func main() {
 		fmt.Printf("Tempo de execução TCP scan: %s\n", tDuration)
 	} else {
 		sStartTime := time.Now()
-		for key, value := range KnownPorts {
-			packages.Synconnection(hostname, key, value)
-		}
+		// for port := 1; port <= 1024; port++ {
+		// 	packages.Synconnection(hostname, port)
+		// }
+		packages.Synconnection(hostname, 22)
 		sEndTime := time.Now()
 		sDuration := sEndTime.Sub(sStartTime)
 		fmt.Printf("Tempo de execução SYN scan: %s\n", sDuration)

@@ -12,6 +12,7 @@ type IPHeader struct {
 	Checksum      uint16
 	SrcAddr       [4]byte
 	DstAddr       [4]byte
+	Offset        uint16
 }
 
 // Estrutura do cabeçalho TCP
@@ -30,4 +31,5 @@ type TCPHeader struct {
 type FullPacket struct {
 	IPHeader  IPHeader
 	TCPHeader TCPHeader
+	Data      []byte
 }

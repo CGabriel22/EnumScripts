@@ -7,7 +7,6 @@ import (
 	"log"
 	"net"
 	"syscall"
-	// "time"
 )
 
 // Função para calcular a soma de verificação
@@ -35,46 +34,75 @@ func toBytes(data interface{}) []byte {
 	return buf.Bytes()
 }
 
-func Synconnection(targetIP string, targetPort int, portService string) {
+// Função para fragmentar um pacote IP
+func fragmentPacket(pkt FullPacket, fragSize int) [][]byte {
+	var fragments [][]byte
+	ipHeaderBytes := toBytes(pkt.IPHeader)
+	tcpHeaderBytes := toBytes(pkt.TCPHeader)
 
-	srcPort := uint16(443)
+	totalLength := len(ipHeaderBytes) + len(tcpHeaderBytes)
+
+	// Fragmentar o pacote de acordo com o tamanho especificado
+	for offset := 0; offset < totalLength; offset += fragSize {
+		end := offset + fragSize
+		if end > totalLength {
+			end = totalLength
+		}
+
+		// Criar fragmento
+		ipHeader := pkt.IPHeader
+		ipHeader.Length = uint16(len(ipHeaderBytes) + len(tcpHeaderBytes) - offset) // Atualizar o tamanho do IPHeader
+		if end < totalLength {
+			ipHeader.FlagsFragment = uint16((offset/8)<<13) | 0x2000 // Definir o bit More Fragments
+		} else {
+			ipHeader.FlagsFragment = 0
+		}
+		ipHeader.Checksum = 0 // Reiniciar checksum para recalcular
+		ipHeader.Checksum = checksum(toBytes(ipHeader))
+
+		// Montar fragmento completo
+		fragment := make([]byte, end-offset) // Cria slice com tamanho correto
+		copy(fragment, ipHeaderBytes[offset:end])
+		fragment = append(fragment, tcpHeaderBytes...) // Adicionar cabeçalho TCP
+
+		// Adicionar fragmento à lista
+		fragments = append(fragments, fragment)
+	}
+
+	return fragments
+}
+
+func Synconnection(targetIP string, targetPort int) {
+
+	srcPort := uint16(51012)
 
 	srcAddr := net.ParseIP("192.168.18.83").To4()
 	dstAddr := net.ParseIP(targetIP).To4()
 
-	// Criar socket raw
-	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, syscall.IPPROTO_RAW)
-	if err != nil {
-		log.Fatalf("Socket create error: %v", err)
+	// Configurar cabeçalho IP
+	ipHeader := IPHeader{
+		VersionIHL:    (4 << 4) | 5,
+		TOS:           0,
+		Length:        20 + 20, // Tamanho do cabeçalho IP + TCP
+		Id:            54321,
+		FlagsFragment: 0,
+		TTL:           64,
+		Protocol:      syscall.IPPROTO_TCP,
+		SrcAddr:       [4]byte{srcAddr[0], srcAddr[1], srcAddr[2], srcAddr[3]},
+		DstAddr:       [4]byte{dstAddr[0], dstAddr[1], dstAddr[2], dstAddr[3]},
 	}
-	defer syscall.Close(fd)
 
-	// Cria o pacote
-	fullPacket := FullPacket{
-		IPHeader: IPHeader{
-			VersionIHL:    (4 << 4) | 5,
-			TOS:           0,
-			Length:        20 + 20, // Tamanho do cabeçalho IP + TCP
-			Id:            54321,
-			FlagsFragment: 0,
-			TTL:           64,
-			Protocol:      syscall.IPPROTO_TCP,
-			SrcAddr:       [4]byte{srcAddr[0], srcAddr[1], srcAddr[2], srcAddr[3]},
-			DstAddr:       [4]byte{dstAddr[0], dstAddr[1], dstAddr[2], dstAddr[3]},
-		},
-		TCPHeader: TCPHeader{
-			SrcPort: srcPort,
-			DstPort: uint16(targetPort),
-			SeqNum:  1105024978,
-			AckNum:  0,
-			DataOff: 5 << 4,
-			Flags:   2, // SYN flag
-			WinSize: 14600,
-			UrgPtr:  0,
-		},
+	// Configurar cabeçalho TCP
+	tcpHeader := TCPHeader{
+		SrcPort: srcPort,
+		DstPort: uint16(targetPort),
+		SeqNum:  1105024978,
+		AckNum:  0,
+		DataOff: 5 << 4,
+		Flags:   2, // SYN flag
+		WinSize: 14600,
+		UrgPtr:  0,
 	}
-	// Calcula o checksum do IPHeader
-	fullPacket.IPHeader.Checksum = checksum(toBytes(fullPacket.IPHeader))
 
 	// Calcular pseudo-header para o checksum TCP
 	pseudoHeader := append([]byte{
@@ -82,22 +110,41 @@ func Synconnection(targetIP string, targetPort int, portService string) {
 		dstAddr[0], dstAddr[1], dstAddr[2], dstAddr[3],
 		0, syscall.IPPROTO_TCP,
 		byte(20 >> 8), byte(20 & 0xff),
-	}, toBytes(fullPacket.TCPHeader)...)
+	}, toBytes(tcpHeader)...)
 	// Calcula o checksum do TCPHeader
-	fullPacket.TCPHeader.Checksum = checksum(pseudoHeader)
+	tcpHeader.Checksum = checksum(pseudoHeader)
 
-	// Converte o pacote para bytes
-	packet := toBytes(fullPacket)
-
-	// Enviar pacote SYN
-	destAddr := syscall.SockaddrInet4{
-		Port: targetPort,
-		Addr: [4]byte{dstAddr[0], dstAddr[1], dstAddr[2], dstAddr[3]},
+	// Pacote completo
+	fullPacket := FullPacket{
+		IPHeader:  ipHeader,
+		TCPHeader: tcpHeader,
 	}
-	err = syscall.Sendto(fd, packet, 0, &destAddr)
+
+	// Fragmentar o pacote
+	fragments := fragmentPacket(fullPacket, 8) // Tamanho do fragmento em bytes
+
+	// Criar socket raw
+	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, syscall.IPPROTO_RAW)
 	if err != nil {
-		log.Fatalf("Error sending package: %v", err)
+		log.Fatalf("Erro ao criar socket raw: %v", err)
 	}
+	defer syscall.Close(fd)
+
+	// Enviar cada fragmento
+	for i, frag := range fragments {
+		fmt.Printf("Fragmento %d:\n", i+1)
+		fmt.Printf("%v\n", frag)
+		destAddr := syscall.SockaddrInet4{
+			Port: targetPort,
+			Addr: [4]byte{dstAddr[0], dstAddr[1], dstAddr[2], dstAddr[3]},
+		}
+		err := syscall.Sendto(fd, frag, 0, &destAddr)
+		if err != nil {
+			log.Fatalf("Erro ao enviar fragmento: %v", err)
+		}
+	}
+
+	fmt.Printf("Pacotes SYN enviados para %s:%d\n", targetIP, targetPort)
 
 	// Criar socket raw para receber pacotes
 	rfd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, syscall.IPPROTO_TCP)
@@ -138,7 +185,7 @@ func Synconnection(targetIP string, targetPort int, portService string) {
 
 				// Se o pacote for SYN/ACK
 				if tcp.Flags&0x12 == 0x12 && tcp.DstPort == srcPort && tcp.SrcPort == uint16(targetPort) {
-					fmt.Printf("Port %d is open ........... %s\n", targetPort, portService)
+					fmt.Printf("Port %d is open\n", targetPort)
 					break
 				}
 				// Verificar se o pacote é um RST/ACK
