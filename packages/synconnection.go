@@ -35,9 +35,7 @@ func toBytes(data interface{}) []byte {
 	return buf.Bytes()
 }
 
-func Synconnection(targetIP string, targetPort int) {
-	// Captura o tempo inicial
-	// startTime := time.Now()
+func Synconnection(targetIP string, targetPort int, portService string) {
 
 	srcPort := uint16(443)
 
@@ -100,7 +98,6 @@ func Synconnection(targetIP string, targetPort int) {
 	if err != nil {
 		log.Fatalf("Error sending package: %v", err)
 	}
-	// fmt.Println("Pacote SYN enviado")
 
 	// Criar socket raw para receber pacotes
 	rfd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, syscall.IPPROTO_TCP)
@@ -110,7 +107,7 @@ func Synconnection(targetIP string, targetPort int) {
 	defer syscall.Close(rfd)
 
 	// Configurar timeout para o socket
-	timeout := syscall.Timeval{Sec: 1, Usec: 0}
+	timeout := syscall.Timeval{Sec: 2, Usec: 0}
 	syscall.SetsockoptTimeval(rfd, syscall.SOL_SOCKET, syscall.SO_RCVTIMEO, &timeout)
 
 	// Receber pacotes
@@ -119,7 +116,7 @@ func Synconnection(targetIP string, targetPort int) {
 		n, _, err := syscall.Recvfrom(rfd, buf, 0)
 		if err != nil {
 			// log.Fatalf("Erro ao receber pacote: %v", err)
-			fmt.Printf("Port %d is closed\n", targetPort)
+			fmt.Printf("Port %d is filtred or timeout\n", targetPort)
 			break
 		}
 
@@ -141,19 +138,15 @@ func Synconnection(targetIP string, targetPort int) {
 
 				// Se o pacote for SYN/ACK
 				if tcp.Flags&0x12 == 0x12 && tcp.DstPort == srcPort && tcp.SrcPort == uint16(targetPort) {
-					fmt.Printf("Port %d is open\n", targetPort)
+					fmt.Printf("Port %d is open ........... %s\n", targetPort, portService)
 					break
 				}
 				// Verificar se o pacote é um RST/ACK
 				if tcp.Flags&0x14 == 0x14 && tcp.DstPort == srcPort && tcp.SrcPort == uint16(targetPort) {
-					fmt.Printf("Port %d is closed\n", targetPort)
+					// fmt.Printf("Port %d is closed\n", targetPort)
 					break
 				}
 			}
 		}
 	}
-	// // Captura o tempo final
-	// endTime := time.Now()
-	// duration := endTime.Sub(startTime)
-	// fmt.Printf("Tempo de execução: %s\n", duration)
 }
