@@ -3,178 +3,141 @@ package main
 import (
 	"encoding/binary"
 	"fmt"
-	"log"
+	"net"
+	"os"
 	"syscall"
 )
 
-// IPHeader representa o cabeçalho IP
-type IPHeader struct {
-	VersionIHL    uint8
-	TOS           uint8
-	Length        uint16
-	Id            uint16
-	FlagsFragment uint16
-	TTL           uint8
-	Protocol      uint8
-	SrcAddr       [4]byte
-	DstAddr       [4]byte
-}
-
-// TCPHeader representa o cabeçalho TCP
-type TCPHeader struct {
-	SrcPort  uint16
-	DstPort  uint16
-	SeqNum   uint32
-	AckNum   uint32
-	DataOff  uint8
-	Flags    uint8
-	WinSize  uint16
-	Checksum uint16
-	UrgPtr   uint16
-}
-
-// FullPacket representa o pacote completo
-type FullPacket struct {
-	IPHeader  IPHeader
-	TCPHeader TCPHeader
-}
-
-// Função para fragmentar o pacote em partes de 8 bytes
-func fragmentPacket(fullPacket FullPacket) [][]byte {
-	var fragments [][]byte
-
-	// Converter FullPacket para bytes
-	packetBytes := toBytes(fullPacket)
-
-	// Tamanho máximo de cada fragmento em bytes
-	fragmentSize := 8
-
-	// Calcular quantos fragmentos serão necessários
-	numFragments := (len(packetBytes) + fragmentSize - 1) / fragmentSize
-
-	// Criar os fragmentos
-	for i := 0; i < numFragments; i++ {
-		start := i * fragmentSize
-		end := start + fragmentSize
-		if end > len(packetBytes) {
-			end = len(packetBytes)
-		}
-		fragment := make([]byte, end-start)
-		copy(fragment, packetBytes[start:end])
-
-		// Configurar cabeçalho do fragmento IPv6
-		if i == numFragments-1 {
-			// Último fragmento
-			nextHeader := fullPacket.IPHeader.Protocol
-			reserved := uint8(0)
-			fragmentOffset := uint16(i) * uint16(fragmentSize/8)
-			identification := fullPacket.IPHeader.Id
-
-			// Montar o cabeçalho do fragmento
-			fragmentHeader := make([]byte, 8)
-			fragmentHeader[0] = nextHeader
-			fragmentHeader[1] = reserved
-			binary.BigEndian.PutUint16(fragmentHeader[2:4], fragmentOffset)
-			binary.BigEndian.PutUint16(fragmentHeader[4:6], identification)
-
-			// Adicionar o cabeçalho ao início do fragmento
-			fragment = append(fragmentHeader, fragment...)
-		}
-
-		fragments = append(fragments, fragment)
-	}
-
-	return fragments
-}
-
-// Função auxiliar para converter a estrutura FullPacket em bytes
-func toBytes(fp FullPacket) []byte {
-	ipBytes := make([]byte, 20)
-	ipBytes[0] = fp.IPHeader.VersionIHL
-	ipBytes[1] = fp.IPHeader.TOS
-	binary.BigEndian.PutUint16(ipBytes[2:4], fp.IPHeader.Length)
-	binary.BigEndian.PutUint16(ipBytes[4:6], fp.IPHeader.Id)
-	binary.BigEndian.PutUint16(ipBytes[6:8], fp.IPHeader.FlagsFragment)
-	ipBytes[8] = fp.IPHeader.TTL
-	ipBytes[9] = fp.IPHeader.Protocol
-	copy(ipBytes[12:], fp.IPHeader.SrcAddr[:])
-	copy(ipBytes[16:], fp.IPHeader.DstAddr[:])
-
-	tcpBytes := make([]byte, 20)
-	binary.BigEndian.PutUint16(tcpBytes[0:2], fp.TCPHeader.SrcPort)
-	binary.BigEndian.PutUint16(tcpBytes[2:4], fp.TCPHeader.DstPort)
-	binary.BigEndian.PutUint32(tcpBytes[4:8], fp.TCPHeader.SeqNum)
-	binary.BigEndian.PutUint32(tcpBytes[8:12], fp.TCPHeader.AckNum)
-	tcpBytes[12] = fp.TCPHeader.DataOff
-	tcpBytes[13] = fp.TCPHeader.Flags
-	binary.BigEndian.PutUint16(tcpBytes[14:16], fp.TCPHeader.WinSize)
-	binary.BigEndian.PutUint16(tcpBytes[16:18], fp.TCPHeader.Checksum)
-	binary.BigEndian.PutUint16(tcpBytes[18:20], fp.TCPHeader.UrgPtr)
-
-	return append(ipBytes, tcpBytes...)
-}
+const (
+	IPv4HeaderLength     = 20 // Tamanho do cabeçalho IPv4 em bytes
+	IPv4FragHeaderLength = 8  // Tamanho do cabeçalho de fragmento IPv4 em bytes
+	SocketProtocolIPv4   = syscall.IPPROTO_RAW
+	TCPHeaderLength      = 20 // Tamanho do cabeçalho TCP em bytes
+	FragmentSize         = 8  // Tamanho de cada fragmento em bytes (deve ser múltiplo de 8)
+)
 
 func main() {
-	// Exemplo de uso
-	ipHeader := IPHeader{
-		VersionIHL:    (4 << 4) | 5,
-		TOS:           0,
-		Length:        40, // Tamanho do cabeçalho IP + TCP
-		Id:            54321,
-		FlagsFragment: 0,
-		TTL:           64,
-		Protocol:      6,                         // IPPROTO_TCP
-		SrcAddr:       [4]byte{192, 168, 18, 83}, // IP de origem
-		DstAddr:       [4]byte{45, 33, 32, 156},  // IP de destino
-	}
+	// Definindo o endereço IPv4 de origem e destino
+	srcIP := net.ParseIP("192.168.18.83").To4()
+	dstIP := net.ParseIP("45.33.32.156").To4()
 
-	tcpHeader := TCPHeader{
-		SrcPort:  51012, // Porta de origem
-		DstPort:  22,    // Porta de destino
-		SeqNum:   1105024978,
-		AckNum:   0,
-		DataOff:  5 << 4,
-		Flags:    2, // SYN flag
-		WinSize:  14600,
-		Checksum: 0, // Será calculado posteriormente
-		UrgPtr:   0,
-	}
+	fmt.Printf("Endereço de origem: %s\n", srcIP)
+	fmt.Printf("Endereço de destino: %s\n", dstIP)
 
-	fullPacket := FullPacket{
-		IPHeader:  ipHeader,
-		TCPHeader: tcpHeader,
-	}
-
-	fragments := fragmentPacket(fullPacket)
-
-	// Socket para enviar os pacotes
-	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, syscall.IPPROTO_RAW)
+	// Configurando o socket raw IPv4
+	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, SocketProtocolIPv4)
 	if err != nil {
-		log.Fatalf("Erro ao criar socket: %v", err)
+		fmt.Println("Erro ao criar o socket:", err)
+		os.Exit(1)
 	}
 	defer syscall.Close(fd)
 
-	// Configurar IP_HDRINCL para incluir o cabeçalho IP personalizado
-	err = syscall.SetsockoptInt(fd, syscall.IPPROTO_IP, syscall.IP_HDRINCL, 1)
-	if err != nil {
-		log.Fatalf("Erro ao configurar IP_HDRINCL: %v", err)
-	}
+	fmt.Println("Socket raw IPv4 criado com sucesso.")
 
-	// Exibindo os fragmentos gerados
-	for i, frag := range fragments {
-		fmt.Printf("Fragmento %d:\n", i+1)
-		fmt.Printf("%v\n", frag)
+	// Construindo o cabeçalho IPv4 base
+	ipv4Header := make([]byte, IPv4HeaderLength)
+	ipv4Header[0] = 0x45                             // Versão IPv4 (4) e IHL (5 palavras de 32 bits)
+	ipv4Header[1] = 0                                // Tipo de serviço
+	ipID := uint16(0x0701)                           // ID do pacote (mesmo para todos os fragmentos)
+	binary.BigEndian.PutUint16(ipv4Header[4:], ipID) // Identificação
+	ipv4Header[8] = 64                               // TTL (Time to Live)
+	ipv4Header[9] = 0x06                             // Protocolo TCP
+	copy(ipv4Header[12:], srcIP)                     // Endereço de origem
+	copy(ipv4Header[16:], dstIP)                     // Endereço de destino
 
-		// Configurar o endereço de destino
-		destAddr := syscall.SockaddrInet4{
-			Port: 22,                       // Porta de destino
-			Addr: [4]byte{45, 33, 32, 156}, // Endereço IP de destino
+	// Construindo o cabeçalho TCP
+	tcpHeader := make([]byte, TCPHeaderLength)
+	binary.BigEndian.PutUint16(tcpHeader[0:], 51012) // Porta de origem (51012)
+	binary.BigEndian.PutUint16(tcpHeader[2:], 22)    // Porta de destino (22)
+	binary.BigEndian.PutUint32(tcpHeader[4:], 1)     // Número de sequência
+	binary.BigEndian.PutUint32(tcpHeader[8:], 0)     // Número de confirmação
+	tcpHeader[12] = 5 << 4                           // Comprimento do cabeçalho TCP em palavras de 32 bits
+	tcpHeader[13] = 2                                // Flags TCP (apenas SYN)
+	binary.BigEndian.PutUint16(tcpHeader[14:], 1024) // Tamanho da janela
+
+	// Calculando o checksum do cabeçalho TCP
+	checksum := checksumTCP(srcIP, dstIP, tcpHeader)
+	binary.BigEndian.PutUint16(tcpHeader[16:], checksum) // Checksum
+
+	fmt.Println("Pacote SYN TCP construído:")
+	fmt.Printf("%X\n", tcpHeader)
+
+	// Dividindo o pacote em fragmentos
+	packet := append(ipv4Header, tcpHeader...)
+	totalLength := len(tcpHeader)
+	offset := 0
+
+	for i := 0; i < 3; i++ {
+		end := offset + FragmentSize
+		if end > totalLength {
+			end = totalLength
+		}
+		fragment := packet[IPv4HeaderLength+offset : IPv4HeaderLength+end]
+		fragmentHeader := make([]byte, IPv4HeaderLength)
+		copy(fragmentHeader, ipv4Header)
+		binary.BigEndian.PutUint16(fragmentHeader[2:], uint16(len(fragment)+IPv4HeaderLength))
+		// Definindo flags e offset para fragmentos
+		offsetField := (offset / 8)
+		if end < totalLength {
+			offsetField |= 0x2000 // Mais fragmentos a seguir
+		}
+		binary.BigEndian.PutUint16(fragmentHeader[6:], uint16(offsetField))
+
+		// Criando o pacote fragmentado
+		fragmentPacket := append(fragmentHeader, fragment...)
+
+		// Enviando o fragmento
+		saddr := &syscall.SockaddrInet4{
+			Port: 0,
+			Addr: [4]byte{dstIP[0], dstIP[1], dstIP[2], dstIP[3]},
 		}
 
-		// Enviar o fragmento
-		err := syscall.Sendto(fd, frag, 0, &destAddr)
+		fmt.Printf("Enviando pacote fragmentado %d...\n", i+1)
+		err := syscall.Sendto(fd, fragmentPacket, 0, saddr)
 		if err != nil {
-			log.Fatalf("Erro ao enviar fragmento: %v", err)
+			fmt.Println("Erro ao enviar pacote fragmentado:", err)
+			os.Exit(1)
 		}
+		fmt.Printf("Pacote fragmentado %d enviado com sucesso!\n", i+1)
+
+		offset += FragmentSize
 	}
+}
+
+// Função para calcular o checksum TCP
+func checksumTCP(srcIP, dstIP net.IP, tcpHeader []byte) uint16 {
+	var (
+		sum    uint32
+		length = uint32(len(tcpHeader))
+	)
+
+	// Pseudo header para o checksum TCP
+	pseudo := make([]byte, 12)
+	copy(pseudo[0:], srcIP)
+	copy(pseudo[4:], dstIP)
+	pseudo[9] = 0x06 // Protocolo TCP
+	binary.BigEndian.PutUint16(pseudo[10:], uint16(length))
+
+	// Calculando a soma do pseudo header
+	for i := 0; i < 12; i += 2 {
+		sum += uint32(pseudo[i])<<8 | uint32(pseudo[i+1])
+	}
+
+	// Calculando a soma do cabeçalho TCP
+	for i := 0; i < len(tcpHeader); i += 2 {
+		sum += uint32(tcpHeader[i])<<8 | uint32(tcpHeader[i+1])
+	}
+
+	// Lidando com byte ímpar no cabeçalho
+	if len(tcpHeader)%2 != 0 {
+		sum += uint32(tcpHeader[len(tcpHeader)-1]) << 8
+	}
+
+	// Dobrando a soma de 32 bits para 16 bits
+	for sum>>16 > 0 {
+		sum = (sum & 0xffff) + (sum >> 16)
+	}
+
+	// Complemento de um
+	return uint16(^sum)
 }

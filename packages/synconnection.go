@@ -49,24 +49,34 @@ func fragmentPacket(pkt FullPacket, fragSize int) [][]byte {
 			end = totalLength
 		}
 
+		fmt.Printf("offset: %v\n", offset)
+		fmt.Printf("end: %v\n", end)
+		fmt.Printf("fragSize: %v de %v\n", fragSize, totalLength)
+
+		fmt.Printf("ip: %v\n", ipHeaderBytes)
+		// Atualiza o cabeçalho de fragmento IPv4 para este fragmento
+		fragmentOffset := uint16(offset) // testar o end qualquer coisa
+		ipHeaderBytes[6] = byte(2<<5) | byte(fragmentOffset>>8)
+		ipHeaderBytes[7] = byte(fragmentOffset & 0xFF)
+
 		// Criar fragmento
-		ipHeader := pkt.IPHeader
-		ipHeader.Length = uint16(len(ipHeaderBytes) + len(tcpHeaderBytes) - offset) // Atualizar o tamanho do IPHeader
-		if end < totalLength {
-			ipHeader.FlagsFragment = uint16((offset/8)<<13) | 0x2000 // Definir o bit More Fragments
-		} else {
-			ipHeader.FlagsFragment = 0
-		}
-		ipHeader.Checksum = 0 // Reiniciar checksum para recalcular
-		ipHeader.Checksum = checksum(toBytes(ipHeader))
+		// ipHeader := pkt.IPHeader
+		// ipHeader.Length = uint16(len(ipHeaderBytes) + len(tcpHeaderBytes) - offset) // Atualizar o tamanho do IPHeader
+		// if end < totalLength {
+		// 	ipHeader.FlagsFragment = uint16((offset/8)<<13) | 0x2000 // Definir o bit More Fragments
+		// } else {
+		// 	ipHeader.FlagsFragment = 0
+		// }
+		// ipHeader.Checksum = 0 // Reiniciar checksum para recalcular
+		// ipHeader.Checksum = checksum(toBytes(ipHeader))
 
-		// Montar fragmento completo
-		fragment := make([]byte, end-offset) // Cria slice com tamanho correto
-		copy(fragment, ipHeaderBytes[offset:end])
-		fragment = append(fragment, tcpHeaderBytes...) // Adicionar cabeçalho TCP
+		// // Montar fragmento completo
+		// fragment := make([]byte, end-offset) // Cria slice com tamanho correto
+		// copy(fragment, ipHeaderBytes[offset:end])
+		// fragment = append(fragment, tcpHeaderBytes...) // Adicionar cabeçalho TCP
 
-		// Adicionar fragmento à lista
-		fragments = append(fragments, fragment)
+		// // Adicionar fragmento à lista
+		// fragments = append(fragments, fragment)
 	}
 
 	return fragments
@@ -121,7 +131,7 @@ func Synconnection(targetIP string, targetPort int) {
 	}
 
 	// Fragmentar o pacote
-	fragments := fragmentPacket(fullPacket, 8) // Tamanho do fragmento em bytes
+	fragments := fragmentPacket(fullPacket, 14) // Tamanho do fragmento em bytes
 
 	// Criar socket raw
 	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, syscall.IPPROTO_RAW)
