@@ -3,10 +3,24 @@ package main
 import (
 	"encoding/binary"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"syscall"
 )
+
+// Estrutura do cabeçalho TCP
+type TCPHeader struct {
+	SrcPort  uint16
+	DstPort  uint16
+	SeqNum   uint32
+	AckNum   uint32
+	DataOff  uint8
+	Flags    uint8
+	WinSize  uint16
+	Checksum uint16
+	UrgPtr   uint16
+}
 
 const (
 	IPv4HeaderLength     = 20 // Tamanho do cabeçalho IPv4 em bytes
@@ -17,6 +31,7 @@ const (
 )
 
 func main() {
+	targetPort := 22
 	// Definindo o endereço IPv4 de origem e destino
 	srcIP := net.ParseIP("192.168.18.83").To4()
 	dstIP := net.ParseIP("45.33.32.156").To4()
@@ -47,13 +62,13 @@ func main() {
 
 	// Construindo o cabeçalho TCP
 	tcpHeader := make([]byte, TCPHeaderLength)
-	binary.BigEndian.PutUint16(tcpHeader[0:], 51012) // Porta de origem (51012)
-	binary.BigEndian.PutUint16(tcpHeader[2:], 22)    // Porta de destino (22)
-	binary.BigEndian.PutUint32(tcpHeader[4:], 1)     // Número de sequência
-	binary.BigEndian.PutUint32(tcpHeader[8:], 0)     // Número de confirmação
-	tcpHeader[12] = 5 << 4                           // Comprimento do cabeçalho TCP em palavras de 32 bits
-	tcpHeader[13] = 2                                // Flags TCP (apenas SYN)
-	binary.BigEndian.PutUint16(tcpHeader[14:], 1024) // Tamanho da janela
+	binary.BigEndian.PutUint16(tcpHeader[0:], 51012)              // Porta de origem (51012)
+	binary.BigEndian.PutUint16(tcpHeader[2:], uint16(targetPort)) // Porta de destino
+	binary.BigEndian.PutUint32(tcpHeader[4:], 1)                  // Número de sequência
+	binary.BigEndian.PutUint32(tcpHeader[8:], 0)                  // Número de confirmação
+	tcpHeader[12] = 5 << 4                                        // Comprimento do cabeçalho TCP em palavras de 32 bits
+	tcpHeader[13] = 2                                             // Flags TCP (apenas SYN)
+	binary.BigEndian.PutUint16(tcpHeader[14:], 1024)              // Tamanho da janela
 
 	// Calculando o checksum do cabeçalho TCP
 	checksum := checksumTCP(srcIP, dstIP, tcpHeader)
@@ -101,6 +116,57 @@ func main() {
 		fmt.Printf("Pacote fragmentado %d enviado com sucesso!\n", i+1)
 
 		offset += FragmentSize
+	}
+
+	// Criar socket raw para receber pacotes
+	rfd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, syscall.IPPROTO_TCP)
+	if err != nil {
+		log.Fatalf("Raw socket create error: %v", err)
+	}
+	defer syscall.Close(rfd)
+
+	// Configurar timeout para o socket
+	timeout := syscall.Timeval{Sec: 2, Usec: 0}
+	syscall.SetsockoptTimeval(rfd, syscall.SOL_SOCKET, syscall.SO_RCVTIMEO, &timeout)
+
+	// Receber pacotes
+	for {
+		buf := make([]byte, 4096)
+		n, _, err := syscall.Recvfrom(rfd, buf, 0)
+		if err != nil {
+			// log.Fatalf("Erro ao receber pacote: %v", err)
+			fmt.Printf("Port %d is filtred or timeout\n", targetPort)
+			break
+		}
+
+		// Verificar se o pacote é um SYN/ACK
+		if n > 0 {
+			ipHeaderLen := int((buf[0] & 0x0f) * 4)
+			if tcpLayer := buf[ipHeaderLen:]; len(tcpLayer) >= 20 {
+				tcp := TCPHeader{
+					SrcPort:  binary.BigEndian.Uint16(tcpLayer[0:2]),
+					DstPort:  binary.BigEndian.Uint16(tcpLayer[2:4]),
+					SeqNum:   binary.BigEndian.Uint32(tcpLayer[4:8]),
+					AckNum:   binary.BigEndian.Uint32(tcpLayer[8:12]),
+					DataOff:  tcpLayer[12] >> 4,
+					Flags:    tcpLayer[13],
+					WinSize:  binary.BigEndian.Uint16(tcpLayer[14:16]),
+					Checksum: binary.BigEndian.Uint16(tcpLayer[16:18]),
+					UrgPtr:   binary.BigEndian.Uint16(tcpLayer[18:20]),
+				}
+
+				// Se o pacote for SYN/ACK
+				if tcp.Flags&0x12 == 0x12 && tcp.DstPort == uint16(51012) && tcp.SrcPort == uint16(targetPort) {
+					fmt.Printf("Port %d is open\n", targetPort)
+					break
+				}
+				// Verificar se o pacote é um RST/ACK
+				if tcp.Flags&0x14 == 0x14 && tcp.DstPort == uint16(51012) && tcp.SrcPort == uint16(targetPort) {
+					// fmt.Printf("Port %d is closed\n", targetPort)
+					break
+				}
+			}
+		}
 	}
 }
 
