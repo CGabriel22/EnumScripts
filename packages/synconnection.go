@@ -17,13 +17,10 @@ const (
 	FragmentSize         = 8  // Tamanho de cada fragmento em bytes (deve ser múltiplo de 8)
 )
 
-func Synconnection(targetIP string, targetPort int) {
+func Synconnection(targetIP string, targetPort int, portService string) {
 	// Definindo o endereço IPv4 de origem e destino
 	srcIP := net.ParseIP("192.168.18.83").To4()
 	dstIP := net.ParseIP(targetIP).To4()
-
-	fmt.Printf("Endereço de origem: %s\n", srcIP)
-	fmt.Printf("Endereço de destino: %s\n", dstIP)
 
 	// Configurando o socket raw IPv4
 	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, SocketProtocolIPv4)
@@ -32,8 +29,6 @@ func Synconnection(targetIP string, targetPort int) {
 		os.Exit(1)
 	}
 	defer syscall.Close(fd)
-
-	fmt.Println("Socket raw IPv4 criado com sucesso.")
 
 	// Construindo o cabeçalho IPv4 base
 	ipv4Header := make([]byte, IPv4HeaderLength)
@@ -59,9 +54,6 @@ func Synconnection(targetIP string, targetPort int) {
 	// Calculando o checksum do cabeçalho TCP
 	checksum := checksumTCP(srcIP, dstIP, tcpHeader)
 	binary.BigEndian.PutUint16(tcpHeader[16:], checksum) // Checksum
-
-	fmt.Println("Pacote SYN TCP construído:")
-	fmt.Printf("%X\n", tcpHeader)
 
 	// Dividindo o pacote em fragmentos
 	packet := append(ipv4Header, tcpHeader...)
@@ -93,13 +85,11 @@ func Synconnection(targetIP string, targetPort int) {
 			Addr: [4]byte{dstIP[0], dstIP[1], dstIP[2], dstIP[3]},
 		}
 
-		fmt.Printf("Enviando pacote fragmentado %d...\n", i+1)
 		err := syscall.Sendto(fd, fragmentPacket, 0, saddr)
 		if err != nil {
 			fmt.Println("Erro ao enviar pacote fragmentado:", err)
 			os.Exit(1)
 		}
-		fmt.Printf("Pacote fragmentado %d enviado com sucesso!\n", i+1)
 
 		offset += FragmentSize
 	}
@@ -121,7 +111,7 @@ func Synconnection(targetIP string, targetPort int) {
 		n, _, err := syscall.Recvfrom(rfd, buf, 0)
 		if err != nil {
 			// log.Fatalf("Erro ao receber pacote: %v", err)
-			fmt.Printf("Port %d is filtred or timeout\n", targetPort)
+			fmt.Printf("Port %d is timeout: %v\n", targetPort, err)
 			break
 		}
 
@@ -143,7 +133,7 @@ func Synconnection(targetIP string, targetPort int) {
 
 				// Se o pacote for SYN/ACK
 				if tcp.Flags&0x12 == 0x12 && tcp.DstPort == uint16(51012) && tcp.SrcPort == uint16(targetPort) {
-					fmt.Printf("Port %d is open\n", targetPort)
+					fmt.Printf("Port %d is open .............. %s \n", targetPort, portService)
 					break
 				}
 				// Verificar se o pacote é um RST/ACK
